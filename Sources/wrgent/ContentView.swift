@@ -5,6 +5,8 @@ struct ContentView: View {
     @EnvironmentObject var recorder: AudioRecorder
     @State private var editingMeetingId: String? = nil
     @State private var editingMeetingName = ""
+    @State private var hoveredMeetingActionKey: String? = nil
+    @State private var hoveredMeetingActionDescription: String? = nil
     @State private var showAdvancedSettings = false
 
     var body: some View {
@@ -28,6 +30,9 @@ struct ContentView: View {
                 .padding(.vertical, 8)
         }
         .frame(width: 360)
+        .onReceive(NotificationCenter.default.publisher(for: .wrgentDismissMenuPanel)) { _ in
+            clearMeetingActionHover()
+        }
     }
 
     // MARK: - Header
@@ -168,7 +173,10 @@ struct ContentView: View {
                 CodexActionButton(
                     title: "予定取得",
                     systemImage: "calendar.badge.plus",
-                    onClick: { recorder.openCalendarImportInCodex() }
+                    onClick: {
+                        NotificationCenter.default.post(name: .wrgentDismissMenuPanel, object: nil)
+                        recorder.openCalendarImportInCodex()
+                    }
                 )
                 .fixedSize()
 
@@ -191,7 +199,9 @@ struct ContentView: View {
                     label: weekPickerLabel,
                     onSelect: selectWeek
                 )
-                .frame(maxWidth: 180)
+                // Keep the control's AppKit intrinsic width from squeezing the
+                // fetch/reload controls or overflowing this fixed menu window.
+                .frame(width: 152, alignment: .trailing)
             }
 
             if recorder.weeklyMeetings.isEmpty {
@@ -201,9 +211,20 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 8)
             } else {
-                ForEach(recorder.weeklyMeetings) { meeting in
-                    meetingRow(meeting)
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(recorder.weeklyMeetings) { meeting in
+                            meetingRow(meeting)
+                        }
+                    }
                 }
+                .frame(height: min(CGFloat(recorder.weeklyMeetings.count) * 28, 220))
+
+                Text(hoveredMeetingActionDescription ?? "右側のアイコンにポインタを置くと説明を表示します")
+                    .font(.caption2)
+                    .foregroundStyle(hoveredMeetingActionDescription == nil ? .tertiary : .secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 2)
             }
 
             let transcribedCount = recorder.weeklyMeetings.filter(\.hasTranscript).count
@@ -212,7 +233,10 @@ struct ContentView: View {
                 systemImage: "sparkles.rectangle.stack",
                 isEnabled: transcribedCount > 0,
                 style: .prominent,
-                onClick: recorder.openWeeklyReportInCodex
+                onClick: {
+                    NotificationCenter.default.post(name: .wrgentDismissMenuPanel, object: nil)
+                    recorder.openWeeklyReportInCodex()
+                }
             )
             .frame(maxWidth: .infinity, minHeight: 28)
             .padding(.top, 4)
@@ -242,6 +266,10 @@ struct ContentView: View {
                 MenuBarActionButton(
                     "",
                     systemImage: "checkmark",
+                    toolTip: "会議名を保存",
+                    onHover: { isHovering in
+                        setMeetingActionHover("\(meeting.id):save", description: "会議名を保存", isHovering: isHovering)
+                    },
                     controlSize: .mini,
                     style: .prominent,
                     onClick: { commitEdit(meeting) }
@@ -249,6 +277,10 @@ struct ContentView: View {
                 MenuBarActionButton(
                     "",
                     systemImage: "xmark",
+                    toolTip: "編集を取り消す",
+                    onHover: { isHovering in
+                        setMeetingActionHover("\(meeting.id):cancel", description: "編集を取り消す", isHovering: isHovering)
+                    },
                     controlSize: .mini,
                     onClick: { editingMeetingId = nil }
                 )
@@ -261,20 +293,26 @@ struct ContentView: View {
                     .font(.caption)
                 MenuBarActionButton(
                     meetingLabel(meeting),
+                    fixedWidth: 160,
                     controlSize: .mini,
                     style: .plain,
                     onClick: { beginEdit(meeting) }
                 )
-                .lineLimit(1)
-                .foregroundStyle(
-                    meeting.includeInInsight
-                        ? (meeting.hasTranscript ? Color.primary : Color.secondary)
-                        : Color.secondary.opacity(0.65)
-                )
-                Spacer(minLength: 0)
+                // 会議名が長くても操作アイコンを押し出さず、末尾を省略する。
+                .frame(width: 160, alignment: .leading)
+                .clipped()
+                .opacity(meeting.includeInInsight ? 1 : 0.65)
                 MenuBarActionButton(
                     "",
                     systemImage: meeting.includeInInsight ? "lightbulb.fill" : "lightbulb.slash",
+                    toolTip: meeting.includeInInsight ? "インサイト対象から外す" : "インサイト対象に戻す",
+                    onHover: { isHovering in
+                        setMeetingActionHover(
+                            "\(meeting.id):insight",
+                            description: meeting.includeInInsight ? "インサイト対象から外す" : "インサイト対象に戻す",
+                            isHovering: isHovering
+                        )
+                    },
                     controlSize: .mini,
                     style: .plain,
                     onClick: {
@@ -284,33 +322,52 @@ struct ContentView: View {
                         )
                     }
                 )
-                .help(meeting.includeInInsight ? "クリックしてインサイト対象外にする" : "クリックしてインサイト対象に戻す")
-                MenuBarActionButton(
-                    "",
-                    systemImage: meeting.useExternalTranscriptForSummary ? "speaker.wave.2.fill" : "mic.fill",
-                    controlSize: .mini,
-                    style: .plain,
-                    onClick: {
-                        recorder.setMeetingSummaryTranscriptSource(
-                            folderName: meeting.id,
-                            externalOnly: !meeting.useExternalTranscriptForSummary
-                        )
-                    }
-                )
-                .help(meeting.useExternalTranscriptForSummary ? "週報には全音声版を使う" : "週報には外部音声のみ版を使う")
+                if meeting.hasExternalTranscript || meeting.useExternalTranscriptForSummary {
+                    MenuBarActionButton(
+                        "",
+                        systemImage: meeting.useExternalTranscriptForSummary ? "speaker.wave.2.fill" : "mic.fill",
+                        toolTip: meeting.useExternalTranscriptForSummary ? "週報に全音声版を使う" : "週報に外部音声のみ版を使う",
+                        onHover: { isHovering in
+                            setMeetingActionHover(
+                                "\(meeting.id):summary-source",
+                                description: meeting.useExternalTranscriptForSummary ? "週報に全音声版を使う" : "週報に外部音声のみ版を使う",
+                                isHovering: isHovering
+                            )
+                        },
+                        controlSize: .mini,
+                        style: .plain,
+                        onClick: {
+                            recorder.setMeetingSummaryTranscriptSource(
+                                folderName: meeting.id,
+                                externalOnly: !meeting.useExternalTranscriptForSummary
+                            )
+                        }
+                    )
+                }
                 if !meeting.hasTranscript {
                     MenuBarActionButton(
                         "",
                         systemImage: recorder.isMeetingInTranscriptionQueue(meeting) ? "clock" : "waveform",
+                        toolTip: recorder.isMeetingInTranscriptionQueue(meeting) ? "文字起こし待ち" : "文字起こしを開始",
+                        onHover: { isHovering in
+                            setMeetingActionHover(
+                                "\(meeting.id):transcription",
+                                description: recorder.isMeetingInTranscriptionQueue(meeting) ? "文字起こし待ち" : "文字起こしを開始",
+                                isHovering: isHovering
+                            )
+                        },
                         controlSize: .mini,
                         style: .plain,
                         onClick: { recorder.enqueueMeetingForTranscription(meeting) }
                     )
-                    .help("文字起こしを開始")
                 }
                 MenuBarActionButton(
                     "",
                     systemImage: "pencil",
+                    toolTip: "会議名を編集",
+                    onHover: { isHovering in
+                        setMeetingActionHover("\(meeting.id):edit", description: "会議名を編集", isHovering: isHovering)
+                    },
                     controlSize: .mini,
                     style: .plain,
                     onClick: { beginEdit(meeting) }
@@ -320,12 +377,28 @@ struct ContentView: View {
     }
 
     private func beginEdit(_ meeting: MeetingRecord) {
+        clearMeetingActionHover()
         editingMeetingId = meeting.id
         editingMeetingName = meeting.displayName
     }
 
+    private func setMeetingActionHover(_ key: String, description: String, isHovering: Bool) {
+        if isHovering {
+            hoveredMeetingActionKey = key
+            hoveredMeetingActionDescription = description
+        } else if hoveredMeetingActionKey == key {
+            clearMeetingActionHover()
+        }
+    }
+
+    private func clearMeetingActionHover() {
+        hoveredMeetingActionKey = nil
+        hoveredMeetingActionDescription = nil
+    }
+
     private func commitEdit(_ meeting: MeetingRecord) {
         recorder.setMeetingName(folderName: meeting.id, name: editingMeetingName)
+        clearMeetingActionHover()
         editingMeetingId = nil
     }
 
@@ -353,6 +426,7 @@ struct ContentView: View {
         guard week != recorder.selectedWeek else { return }
         Task { @MainActor in
             await Task.yield()
+            clearMeetingActionHover()
             recorder.selectedWeek = week
             recorder.refreshWeeklyMeetings()
             recorder.refreshCalendarCount()
@@ -448,7 +522,10 @@ struct ContentView: View {
             MenuBarActionButton(
                 "終了",
                 style: .plain,
-                onClick: { NSApp.terminate(nil) }
+                onClick: {
+                    NotificationCenter.default.post(name: .wrgentDismissMenuPanel, object: nil)
+                    NSApp.terminate(nil)
+                }
             )
             .foregroundStyle(.red)
         }

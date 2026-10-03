@@ -1,6 +1,38 @@
 import AppKit
 import SwiftUI
 
+/// Nonactivating panel でもホバー状態を確実に通知するための NSButton。
+/// AppKit 標準の tooltip はこの種のパネルでは表示されない環境がある。
+@MainActor final class HoverTrackingButton: NSButton {
+    var hoverHandler: ((Bool) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        hoverHandler?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        hoverHandler?(false)
+    }
+}
+
 /// An AppKit-backed button for actions that open Codex from the menu-bar popover.
 ///
 /// On macOS 26, the SwiftUI `Button` gesture path has crashed while dispatching
@@ -109,6 +141,9 @@ struct MenuBarActionButton: NSViewRepresentable {
 
     let title: String
     let systemImage: String?
+    let toolTip: String?
+    let onHover: ((Bool) -> Void)?
+    let fixedWidth: CGFloat?
     let isEnabled: Bool
     let controlSize: NSControl.ControlSize
     let style: Style
@@ -117,6 +152,9 @@ struct MenuBarActionButton: NSViewRepresentable {
     init(
         _ title: String,
         systemImage: String? = nil,
+        toolTip: String? = nil,
+        onHover: ((Bool) -> Void)? = nil,
+        fixedWidth: CGFloat? = nil,
         isEnabled: Bool = true,
         controlSize: NSControl.ControlSize = .small,
         style: Style = .regular,
@@ -124,6 +162,9 @@ struct MenuBarActionButton: NSViewRepresentable {
     ) {
         self.title = title
         self.systemImage = systemImage
+        self.toolTip = toolTip
+        self.onHover = onHover
+        self.fixedWidth = fixedWidth
         self.isEnabled = isEnabled
         self.controlSize = controlSize
         self.style = style
@@ -132,22 +173,39 @@ struct MenuBarActionButton: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(onClick: onClick) }
 
-    func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(title: title, target: context.coordinator,
-                              action: #selector(Coordinator.didClick(_:)))
+    func makeNSView(context: Context) -> HoverTrackingButton {
+        let button = HoverTrackingButton(title: title, target: context.coordinator,
+                                         action: #selector(Coordinator.didClick(_:)))
         configure(button)
         return button
     }
 
-    func updateNSView(_ button: NSButton, context: Context) {
+    func updateNSView(_ button: HoverTrackingButton, context: Context) {
         context.coordinator.onClick = onClick
         configure(button)
     }
 
-    private func configure(_ button: NSButton) {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: HoverTrackingButton, context: Context) -> CGSize? {
+        guard let fixedWidth else { return nil }
+        return CGSize(width: fixedWidth, height: nsView.intrinsicContentSize.height)
+    }
+
+    static func dismantleNSView(_ button: HoverTrackingButton, coordinator: Coordinator) {
+        button.hoverHandler?(false)
+        button.hoverHandler = nil
+    }
+
+    private func configure(_ button: HoverTrackingButton) {
         button.title = title
+        button.cell?.lineBreakMode = .byTruncatingTail
+        // SwiftUI の .help では NSViewRepresentable 内の NSButton に
+        // 反映されないことがあるため、AppKit の tooltip を直接設定する。
+        button.toolTip = toolTip
+        button.hoverHandler = onHover
+        button.setAccessibilityLabel(toolTip ?? title)
+        button.setAccessibilityHelp(toolTip)
         button.image = systemImage.flatMap {
-            NSImage(systemSymbolName: $0, accessibilityDescription: title)
+            NSImage(systemSymbolName: $0, accessibilityDescription: toolTip ?? title)
         }
         button.imagePosition = systemImage == nil ? .noImage : .imageLeading
         button.isEnabled = isEnabled
@@ -253,11 +311,15 @@ struct ModelPopupButton: NSViewRepresentable {
     }
 
     private func configure(_ button: NSPopUpButton) {
-        if button.itemArray.map(\.title) != models {
+        if button.itemArray.compactMap({ $0.representedObject as? String }) != models {
             button.removeAllItems()
-            button.addItems(withTitles: models)
+            for model in models {
+                let title = model == Transcriber.mlxModelName ? "large-v3-turbo（MLX・高速）" : model
+                button.addItem(withTitle: title)
+                button.lastItem?.representedObject = model
+            }
         }
-        button.selectItem(withTitle: selectedModel)
+        if let index = models.firstIndex(of: selectedModel) { button.selectItem(at: index) }
         button.isEnabled = isEnabled
         button.controlSize = .small
     }
@@ -268,7 +330,7 @@ struct ModelPopupButton: NSViewRepresentable {
         init(selectedModel: Binding<String>) { self.selectedModel = selectedModel }
 
         @objc func didSelect(_ sender: NSPopUpButton) {
-            guard let model = sender.selectedItem?.title else { return }
+            guard let model = sender.selectedItem?.representedObject as? String else { return }
             let binding = selectedModel
             Task { @MainActor in
                 await Task.yield()

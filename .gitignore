@@ -1,1 +1,4 @@
 .build/
+/wrgent.app/Contents/Resources/MLXRuntime/
+/wrgent.app/Contents/Resources/mlx_worker.py
+__pycache__/

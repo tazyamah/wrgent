@@ -10,6 +10,7 @@ struct WeeklySummaryGenerator {
         let transcriptURL: URL?
         let includeInInsight: Bool
         let useExternalTranscriptForSummary: Bool
+        let hasExternalTranscript: Bool
     }
 
     // MARK: - Week folder naming
@@ -109,7 +110,8 @@ struct WeeklySummaryGenerator {
                 hasTranscript: transcriptURL != nil,
                 transcriptURL: transcriptURL,
                 includeInInsight: insightSelection[name] ?? true,
-                useExternalTranscriptForSummary: useExternalTranscriptForSummary
+                useExternalTranscriptForSummary: useExternalTranscriptForSummary,
+                hasExternalTranscript: fm.fileExists(atPath: item.appendingPathComponent("transcript_external_\(modelName).txt").path)
             ))
         }
         return result.sorted { $0.date < $1.date }
@@ -151,7 +153,7 @@ struct WeeklySummaryGenerator {
         lines.append("""
 以下は、ユーザーが「インサイトに含める」と指定した打ち合わせや会話の文字起こしです。
 予定名・会議名は誤検出されている可能性があるため、予定名や会議名を重視せず、実際の会話内容からテーマを判断してください。
-話者ラベルはmic/system音声から機械的に付けたもので、同じ発話が両方へ入る場合もあります。[自分]の発言を優先せず、選択された会話全体から重要な論点、変化、判断材料、学びを読み取ってください。
+新規録音は自分と相手の混合音声から文字起こししており、話者ラベルはありません。旧録音の話者ラベルはmic/system音声から機械的に付けたもので、同じ発話が両方へ入る場合もあります。[自分]の発言を優先せず、選択された会話全体から重要な論点、変化、判断材料、学びを読み取ってください。
 
 目的：
 単なる議事録要約ではなく、選択された会話を横断して、何が重要だったか、認識がどう変わったか、今後につながる示唆は何かが伝わる週次振り返りにしてください。

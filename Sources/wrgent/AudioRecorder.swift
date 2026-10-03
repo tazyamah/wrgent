@@ -16,6 +16,7 @@ struct MeetingRecord: Identifiable, Sendable {
     let hasTranscript: Bool
     let includeInInsight: Bool
     let useExternalTranscriptForSummary: Bool
+    let hasExternalTranscript: Bool
 
     var relativePath: String { "\(weekFolder)/\(id)" }
 }
@@ -38,12 +39,13 @@ private struct PreparedRecordingFolder: @unchecked Sendable {
     let folder: URL
 }
 
-private struct TranscriptionPart: @unchecked Sendable {
+struct TranscriptionPart: @unchecked Sendable {
     let url: URL
     let duration: Double
 }
 
-private struct TranscriptionInputs: @unchecked Sendable {
+struct TranscriptionInputs: @unchecked Sendable {
+    let mixed: [TranscriptionPart]
     let mic: [TranscriptionPart]
     let system: [TranscriptionPart]
     let unreadableFileName: String?
@@ -254,6 +256,10 @@ private final class MicCaptureController: @unchecked Sendable {
                         throw NSError(domain: "wrgent", code: 2,
                                       userInfo: [NSLocalizedDescriptionKey: "マイク入力フォーマットが無効です"])
                     }
+                    // `tapInstalled` はSwift側の記録であり、Audio Unit側に残った
+                    // tap を表し切れないことがある。開始ごとに同じ直列キューで
+                    // 無条件解除してから登録し、InstallTapOnNode の abort を防ぐ。
+                    input.removeTap(onBus: 0)
                     input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
                         outputGate.push(buffer)
                     }
@@ -649,6 +655,7 @@ final class AudioRecorder: NSObject, ObservableObject {
     private var transcriptionQueue: [String] = []
     private var activeTranscriptionPath: String?
     private var transcriptionTask: Task<Void, Never>?
+    private var cachedTranscriber: (directory: URL, model: String, instance: Transcriber)?
     private var transcriptionWatchdogTask: Task<Void, Never>?
     private var transcriptionProgressMonitor: TranscriptionProgressMonitor?
     private var transcriptionOperationGeneration: UInt64 = 0
@@ -1329,6 +1336,17 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
+    private func reusableTranscriber(modelsDir: URL, modelName: String) -> Transcriber {
+        if let cached = cachedTranscriber,
+           cached.directory == modelsDir, cached.model == modelName {
+            RecLog.shared.log("whisper: reusing model=\(modelName)")
+            return cached.instance
+        }
+        let instance = Transcriber(modelsDir: modelsDir, modelName: modelName)
+        cachedTranscriber = (modelsDir, modelName, instance)
+        return instance
+    }
+
     func downloadModel() {
         guard !isTranscribing else { return }
         guard cancelledTranscriptionOperation == nil else {
@@ -1340,7 +1358,9 @@ final class AudioRecorder: NSObject, ObservableObject {
             return
         }
         isTranscribing = true
-        transcriptionStatus = "モデルを取得中…（初回は数百MB、しばらくかかります）"
+        transcriptionStatus = selectedModelName == Transcriber.mlxModelName
+            ? "モデルを取得中…（初回は約1.5GB、しばらくかかります）"
+            : "モデルを取得中…（初回は数百MB〜数GB、しばらくかかります）"
         let dir = modelsDir(); let name = selectedModelName
         transcriptionOperationGeneration &+= 1
         let operation = transcriptionOperationGeneration
@@ -1356,7 +1376,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             guard let self else { return }
             defer { self.finishTranscriptionTaskIfCurrent(operation: operation) }
             do {
-                let t = Transcriber(modelsDir: dir, modelName: name)
+                let t = self.reusableTranscriber(modelsDir: dir, modelName: name)
                 try await t.ensureLoaded(progressMonitor: monitor)
                 guard self.transcriptionOperationGeneration == operation else { return }
                 self.modelReady = true
@@ -1372,6 +1392,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                     RecLog.shared.log("model download: ignored late completion after cancellation")
                     return
                 }
+                self.cachedTranscriber = nil
                 self.transcriptionStatus = "モデル取得に失敗: \(error.localizedDescription)"
                 self.isTranscribing = false
             }
@@ -1418,7 +1439,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         startTranscriptionWatchdog(
             operation: operation,
             monitor: monitor,
-            maximumIdleSeconds: modelReady ? 600 : 1_200,
+            maximumIdleSeconds: 1_200,
             activityName: "文字起こし"
         )
 
@@ -1434,7 +1455,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                 guard !self.isRecording else {
                     throw CancellationError()
                 }
-                guard !inputs.mic.isEmpty || !inputs.system.isEmpty else {
+                guard !inputs.mixed.isEmpty || !inputs.mic.isEmpty || !inputs.system.isEmpty else {
                     self.transcriptionStatus = "音声ファイルが見つかりません"
                     self.isTranscribing = false
                     self.activeTranscriptionPath = nil
@@ -1452,70 +1473,94 @@ final class AudioRecorder: NSObject, ObservableObject {
                     self.processTranscriptionQueue()
                     return
                 }
-                let t = Transcriber(modelsDir: dir, modelName: name)
+                let t = self.reusableTranscriber(modelsDir: dir, modelName: name)
 
                 transcriptionStatus = modelReady ? "モデルをロード中…" : "モデルをダウンロード中…（初回は数百MB）"
                 try await t.ensureLoaded(progressMonitor: monitor)
                 guard self.transcriptionOperationGeneration == operation else { return }
                 modelReady = true
-
-                var selfText = ""
-                var micSegs: [(start: Double, text: String)] = []
-                var micOffset = 0.0
-                for (i, part) in inputs.mic.enumerated() {
-                    transcriptionStatus = "文字起こし中… 自分 \(i + 1)/\(inputs.mic.count)"
-                    let (text, segs) = try await t.transcribe(
-                        part.url,
-                        progressMonitor: monitor
-                    )
-                    guard self.transcriptionOperationGeneration == operation else { return }
-                    if !selfText.isEmpty { selfText += " " }
-                    selfText += text
-                    for seg in segs {
-                        let s = seg.text.trimmingCharacters(in: .whitespaces)
-                        if !s.isEmpty { micSegs.append((start: seg.start + micOffset, text: s)) }
-                    }
-                    micOffset += part.duration
-                }
-
-                var otherText = ""
-                var sysSegs: [(start: Double, text: String)] = []
-                var sysOffset = 0.0
-                for (i, part) in inputs.system.enumerated() {
-                    transcriptionStatus = "文字起こし中… 相手 \(i + 1)/\(inputs.system.count)"
-                    let (text, segs) = try await t.transcribe(
-                        part.url,
-                        progressMonitor: monitor
-                    )
-                    guard self.transcriptionOperationGeneration == operation else { return }
-                    if !otherText.isEmpty { otherText += " " }
-                    otherText += text
-                    for seg in segs {
-                        let s = seg.text.trimmingCharacters(in: .whitespaces)
-                        if !s.isEmpty { sysSegs.append((start: seg.start + sysOffset, text: s)) }
-                    }
-                    sysOffset += part.duration
-                }
+                // 初回のモデル初期化と、認識中の無進捗は別々の上限で監視する。
+                startTranscriptionWatchdog(
+                    operation: operation,
+                    monitor: monitor,
+                    maximumIdleSeconds: 600,
+                    activityName: "文字起こし"
+                )
 
                 let fileSuffix = "_\(name)"
                 var outputs: [TranscriptOutput] = []
-                if !selfText.isEmpty {
-                    let fname = "transcript_self\(fileSuffix).txt"
-                    outputs.append(TranscriptOutput(fileName: fname, text: selfText))
-                }
-                if !otherText.isEmpty {
-                    let fname = "transcript_other\(fileSuffix).txt"
-                    outputs.append(TranscriptOutput(fileName: fname, text: otherText))
-                }
-                let merged = mergeTranscripts(mic: micSegs, sys: sysSegs)
-                if !merged.isEmpty {
-                    let fname = "transcript\(fileSuffix).txt"
-                    outputs.append(TranscriptOutput(fileName: fname, text: merged))
-                }
-                let external = externalTranscript(sysSegs)
-                if !external.isEmpty {
-                    let fname = "transcript_external\(fileSuffix).txt"
-                    outputs.append(TranscriptOutput(fileName: fname, text: external))
+                if !inputs.mixed.isEmpty {
+                    RecLog.shared.log("transcribe: mixed single-pass (\(inputs.mixed.count) parts)")
+                    var lines: [String] = []
+                    for (i, part) in inputs.mixed.enumerated() {
+                        transcriptionStatus = "文字起こし中… 会話全体 \(i + 1)/\(inputs.mixed.count)"
+                        let (text, _) = try await t.transcribe(part.url, progressMonitor: monitor)
+                        guard self.transcriptionOperationGeneration == operation else { return }
+                        if !text.isEmpty { lines.append(text) }
+                    }
+                    if !lines.isEmpty {
+                        outputs.append(TranscriptOutput(
+                            fileName: "transcript\(fileSuffix).txt",
+                            text: lines.joined(separator: "\n")
+                        ))
+                    }
+                } else {
+                    var selfText = ""
+                    var micSegs: [(start: Double, text: String)] = []
+                    var micOffset = 0.0
+                    for (i, part) in inputs.mic.enumerated() {
+                        transcriptionStatus = "文字起こし中… 自分 \(i + 1)/\(inputs.mic.count)"
+                        let (text, segs) = try await t.transcribe(
+                            part.url,
+                            progressMonitor: monitor
+                        )
+                        guard self.transcriptionOperationGeneration == operation else { return }
+                        if !selfText.isEmpty { selfText += " " }
+                        selfText += text
+                        for seg in segs {
+                            let s = seg.text.trimmingCharacters(in: .whitespaces)
+                            if !s.isEmpty { micSegs.append((start: seg.start + micOffset, text: s)) }
+                        }
+                        micOffset += part.duration
+                    }
+
+                    var otherText = ""
+                    var sysSegs: [(start: Double, text: String)] = []
+                    var sysOffset = 0.0
+                    for (i, part) in inputs.system.enumerated() {
+                        transcriptionStatus = "文字起こし中… 相手 \(i + 1)/\(inputs.system.count)"
+                        let (text, segs) = try await t.transcribe(
+                            part.url,
+                            progressMonitor: monitor
+                        )
+                        guard self.transcriptionOperationGeneration == operation else { return }
+                        if !otherText.isEmpty { otherText += " " }
+                        otherText += text
+                        for seg in segs {
+                            let s = seg.text.trimmingCharacters(in: .whitespaces)
+                            if !s.isEmpty { sysSegs.append((start: seg.start + sysOffset, text: s)) }
+                        }
+                        sysOffset += part.duration
+                    }
+
+                    if !selfText.isEmpty {
+                        let fname = "transcript_self\(fileSuffix).txt"
+                        outputs.append(TranscriptOutput(fileName: fname, text: selfText))
+                    }
+                    if !otherText.isEmpty {
+                        let fname = "transcript_other\(fileSuffix).txt"
+                        outputs.append(TranscriptOutput(fileName: fname, text: otherText))
+                    }
+                    let merged = mergeTranscripts(mic: micSegs, sys: sysSegs)
+                    if !merged.isEmpty {
+                        let fname = "transcript\(fileSuffix).txt"
+                        outputs.append(TranscriptOutput(fileName: fname, text: merged))
+                    }
+                    let external = externalTranscript(sysSegs)
+                    if !external.isEmpty {
+                        let fname = "transcript_external\(fileSuffix).txt"
+                        outputs.append(TranscriptOutput(fileName: fname, text: external))
+                    }
                 }
                 let written = try await self.writeTranscriptionOutputs(
                     outputs,
@@ -1546,6 +1591,7 @@ final class AudioRecorder: NSObject, ObservableObject {
                     return
                 }
                 RecLog.shared.log("transcribe: failed '\(path)': \(error.localizedDescription)")
+                self.cachedTranscriber = nil
                 self.handleTranscriptionFailure(path: path, error: error)
             }
         }
@@ -1575,7 +1621,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
     }
 
-    nonisolated private static func scanTranscriptionInputs(in folder: URL) throws -> TranscriptionInputs {
+    nonisolated static func scanTranscriptionInputs(in folder: URL) throws -> TranscriptionInputs {
         let files = try FileManager.default.contentsOfDirectory(
             at: folder,
             includingPropertiesForKeys: nil,
@@ -1599,7 +1645,14 @@ final class AudioRecorder: NSObject, ObservableObject {
                 }
             }
         }
+        let externalOnly = MeetingSummaryTranscriptStore.load(in: folder.deletingLastPathComponent())[folder.lastPathComponent] ?? false
+        let mixed = urls(prefix: "mix")
+        if !mixed.isEmpty && !externalOnly {
+            let parts = inspect(mixed)
+            return TranscriptionInputs(mixed: parts, mic: [], system: [], unreadableFileName: unreadable)
+        }
         return TranscriptionInputs(
+            mixed: [],
             mic: inspect(urls(prefix: "mic")),
             system: inspect(urls(prefix: "system")),
             unreadableFileName: unreadable
@@ -1691,6 +1744,7 @@ final class AudioRecorder: NSObject, ObservableObject {
         let cancelledTask = transcriptionTask
         transcriptionOperationGeneration &+= 1
         transcriptionProgressMonitor?.cancel()
+        cachedTranscriber = nil
         transcriptionTask?.cancel()
         transcriptionWatchdogTask?.cancel()
         transcriptionTask = nil
@@ -1957,7 +2011,8 @@ final class AudioRecorder: NSObject, ObservableObject {
                     displayName: $0.displayName,
                     hasTranscript: $0.hasTranscript,
                     includeInInsight: $0.includeInInsight,
-                    useExternalTranscriptForSummary: $0.useExternalTranscriptForSummary
+                    useExternalTranscriptForSummary: $0.useExternalTranscriptForSummary,
+                    hasExternalTranscript: $0.hasExternalTranscript
                 )
             }
             Task { @MainActor [weak self] in
@@ -2069,7 +2124,7 @@ final class AudioRecorder: NSObject, ObservableObject {
             .joined(separator: "\n")
     }
 
-    nonisolated private static func ensureExternalTranscripts(in meetingFolder: URL) {
+    nonisolated static func ensureExternalTranscripts(in meetingFolder: URL) {
         let fm = FileManager.default
         let files = (try? fm.contentsOfDirectory(at: meetingFolder, includingPropertiesForKeys: nil)) ?? []
         for allURL in files where allURL.lastPathComponent.hasPrefix("transcript_")
@@ -2084,11 +2139,13 @@ final class AudioRecorder: NSObject, ObservableObject {
             let external = all
                 .split(separator: "\n", omittingEmptySubsequences: false)
                 .compactMap { line -> String? in
-                    guard !line.hasPrefix("[自分]") else { return nil }
-                    return line.hasPrefix("[相手]") ? String(line) : "[相手] \(line)"
+                    // 混合音声の話者は不明なので、相手の発言と断定しない。
+                    return line.hasPrefix("[相手]") ? String(line) : nil
                 }
                 .joined(separator: "\n")
-            try? external.write(to: externalURL, atomically: true, encoding: .utf8)
+            if !external.isEmpty {
+                try? external.write(to: externalURL, atomically: true, encoding: .utf8)
+            }
         }
     }
 
@@ -2729,8 +2786,9 @@ final class AudioRecorder: NSObject, ObservableObject {
         }
 
         let mixW = makeWriter("mix")
-        let micW = useMic ? makeWriter("mic") : nil
-        let sysW = useSys ? makeWriter("system") : nil
+        // 混合音声だけ保存し、AACエンコードと終了処理を削減する。
+        let micW: SegmentWriter? = nil
+        let sysW: SegmentWriter? = nil
         mixWriter = mixW; micWriter = micW; sysWriter = sysW
 
         let mx = Mixer(format: procFormat,
@@ -2954,8 +3012,16 @@ final class AudioRecorder: NSObject, ObservableObject {
         isRecoveringMic = true
         micRecoveryAttemptsWithoutProgress += 1
         micRecoveryTask?.cancel()
+        // `AVAudioEngineConfigurationChange` can arrive while the old input node
+        // still owns its tap.  Reusing that engine lets `installTap` raise an
+        // Objective-C exception (which Swift cannot catch) and terminate the
+        // process.  Stop the old controller best-effort, then recover only with
+        // a fresh engine so the new tap is never installed on that node.
+        let previousMicCapture = micCapture
+        previousMicCapture.stop()
+        micCapture = MicCaptureController()
         RecLog.shared.log(
-            "mic: configuration change — recovery \(micRecoveryAttemptsWithoutProgress)/\(maxMicRecoveryAttemptsWithoutProgress) scheduled (\(reason))"
+            "mic: configuration change — fresh-controller recovery \(micRecoveryAttemptsWithoutProgress)/\(maxMicRecoveryAttemptsWithoutProgress) scheduled (\(reason))"
         )
         micRecoveryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2))
