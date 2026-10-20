@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     private bool _modal;
     private bool _quitting;
     private double _micShown, _sysShown;
+    private int _labelTicks;
 
     public MainWindow()
     {
@@ -67,6 +68,7 @@ public partial class MainWindow : Window
         NameBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) ToggleRecording(); };
 
         _recorder.Error += msg => Dispatcher.BeginInvoke(() => ShowTask(msg, null));
+        _recorder.DevicesChanged += () => Dispatcher.BeginInvoke(() => { if (_recorder.IsRecording) UpdateDeviceLabels(); });
         _meterTimer.Tick += (_, _) => UpdateMeters();
         Deactivated += (_, _) => { if (!_pinned && !_modal && IsVisible) Hide(); };
         Closing += (_, e) => { if (!_quitting) { e.Cancel = true; Hide(); } };
@@ -169,7 +171,8 @@ public partial class MainWindow : Window
         _currentDir = Path.Combine(_settings.LibraryDir, folder);
         try
         {
-            _recorder.Start(Path.Combine(_currentDir, WavFileName), MicToggle.IsChecked == true, SysToggle.IsChecked == true);
+            _recorder.Start(Path.Combine(_currentDir, WavFileName), MicToggle.IsChecked == true, SysToggle.IsChecked == true,
+                _settings.UnmuteMicWhileRecording);
         }
         catch (Exception ex)
         {
@@ -179,14 +182,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        MicName.Text = _recorder.MicDeviceName.Length > 0 ? _recorder.MicDeviceName : "マイク（オフ）";
-        SysName.Text = _recorder.SystemDeviceName.Length > 0 ? _recorder.SystemDeviceName : "PCの音（オフ）";
         SetRecordingVisuals();
-        if (_recorder.MicMuted)
-        {
-            MicName.Text = "マイクがWindowsでミュートされています";
-            MicName.SetResourceReference(ForegroundProperty, "Orange");
-        }
+        UpdateDeviceLabels();
         _meterTimer.Start();
         RefreshList();
     }
@@ -228,6 +225,29 @@ public partial class MainWindow : Window
             if (!_recorder.IsRecording) SetStatus("待機中", null);
         }
         if (_settings.AutoTranscribe) await TranscribeAsync(dir);
+    }
+
+    /// <summary>録音中のデバイス名と、マイクのミュート状態を表示する。</summary>
+    private void UpdateDeviceLabels()
+    {
+        SysName.Text = _recorder.SystemDeviceName.Length > 0 ? _recorder.SystemDeviceName : SysToggle.IsChecked == true ? "再生デバイスが見つかりません" : "PCの音（オフ）";
+        if (MicToggle.IsChecked != true)
+            SetMicLabel("マイク（オフ）", "TextSecondary");
+        else if (_recorder.MicDeviceName.Length == 0)
+            SetMicLabel("マイクが見つかりません", "Orange");
+        else if (_recorder.IsMicMutedNow())
+            SetMicLabel("マイクがWindowsでミュートされています", "Orange");
+        else if (_recorder.MicUnmutedByApp)
+            SetMicLabel($"{_recorder.MicDeviceName}（ミュートを録音中だけ解除）", "TextSecondary");
+        else
+            SetMicLabel(_recorder.MicDeviceName, "TextSecondary");
+    }
+
+    private void SetMicLabel(string text, string colorKey)
+    {
+        MicName.Text = text;
+        MicName.ToolTip = text;
+        MicName.SetResourceReference(ForegroundProperty, colorKey);
     }
 
     private void SetRecordingVisuals()
@@ -291,6 +311,7 @@ public partial class MainWindow : Window
     {
         var e = _recorder.Elapsed;
         TimeText.Text = $"{(int)e.TotalHours:00}:{e.Minutes:00}:{e.Seconds:00}";
+        if (++_labelTicks % 12 == 0) UpdateDeviceLabels();
         // 上がるときはすぐ、下がるときはゆっくり動かす。
         _micShown = Smooth(_micShown, ToMeter(_recorder.MicLevel));
         _sysShown = Smooth(_sysShown, ToMeter(_recorder.SystemLevel));

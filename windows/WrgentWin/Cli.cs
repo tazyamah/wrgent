@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace WrgentWin;
@@ -30,7 +30,7 @@ static class Cli
                 {
                     using var r = new AudioRecorder();
                     var wav = Path.Combine(args[2], "recording.wav");
-                    r.Start(wav, true, true);
+                    r.Start(wav, true, true, true);
                     Console.WriteLine($"mic={r.MicDeviceName} system={r.SystemDeviceName}");
                     float micMax = 0, sysMax = 0;
                     var until = DateTime.Now.AddSeconds(double.Parse(args[1]));
@@ -40,7 +40,7 @@ static class Cli
                         sysMax = Math.Max(sysMax, r.SystemLevel);
                         Thread.Sleep(50);
                     }
-                    Console.WriteLine($"peak mic={micMax:0.0000} system={sysMax:0.0000} micMuted={r.MicMuted}");
+                    Console.WriteLine($"peak mic={micMax:0.000000} system={sysMax:0.000000} micMuted={r.MicMuted} unmutedByApp={r.MicUnmutedByApp}");
                     var elapsed = r.Stop();
                     AudioRecorder.EncodeToM4a(wav, Path.Combine(args[2], "mix.m4a"));
                     Console.WriteLine($"elapsed={elapsed.TotalSeconds:0.00}");
