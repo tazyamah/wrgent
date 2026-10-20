@@ -11,13 +11,19 @@ static class Program
         using var mutex = new Mutex(true, "wrgent-win-single-instance", out var isFirst);
         if (!isFirst)
         {
-            MessageBox.Show("wrgent はすでに起動しています。タスクトレイを確認してください。", "wrgent");
+            System.Windows.MessageBox.Show("wrgent はすでに起動しています。タスクトレイのアイコンから開けます。", "wrgent");
             return 1;
         }
-        ApplicationConfiguration.Initialize();
-        Application.ThreadException += (_, e) => Log.Write($"ui exception: {e.Exception}");
+        var app = new System.Windows.Application { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown };
+        app.DispatcherUnhandledException += (_, e) =>
+        {
+            Log.Write($"ui exception: {e.Exception}");
+            e.Handled = true;
+        };
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Write($"unhandled: {e.ExceptionObject}");
-        Application.Run(new MainForm());
+        var window = new MainWindow();
+        window.ShowPopover();
+        app.Run();
         return 0;
     }
 }

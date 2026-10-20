@@ -5,6 +5,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>wrgent</AssemblyName>
     <RootNamespace>WrgentWin</RootNamespace>
@@ -15,7 +16,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="app.ico" />
+    <EmbeddedResource Include="app.ico" LogicalName="WrgentWin.app.ico" />
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <Using Include="System.IO" />
   </ItemGroup>
 
   <ItemGroup>

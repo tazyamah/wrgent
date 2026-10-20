@@ -35,6 +35,8 @@ sealed class AudioRecorder : IDisposable
     public float SystemLevel { get; private set; }
 
     public string MicDeviceName { get; private set; } = "";
+    /// <summary>Windows側でマイクがミュート（または音量0）になっている。</summary>
+    public bool MicMuted { get; private set; }
     public string SystemDeviceName { get; private set; } = "";
 
     public event Action<string>? Error;
@@ -70,6 +72,7 @@ sealed class AudioRecorder : IDisposable
         {
             var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Communications);
             MicDeviceName = device.FriendlyName;
+            MicMuted = device.AudioEndpointVolume.Mute || device.AudioEndpointVolume.MasterVolumeLevelScalar < 0.01f;
             _mic = new WasapiCapture(device, true, 20);
             _micBuffer = CreateBuffer(_mic.WaveFormat);
             _mic.DataAvailable += (_, e) =>

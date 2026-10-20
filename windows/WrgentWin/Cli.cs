@@ -32,7 +32,15 @@ static class Cli
                     var wav = Path.Combine(args[2], "recording.wav");
                     r.Start(wav, true, true);
                     Console.WriteLine($"mic={r.MicDeviceName} system={r.SystemDeviceName}");
-                    Thread.Sleep(TimeSpan.FromSeconds(double.Parse(args[1])));
+                    float micMax = 0, sysMax = 0;
+                    var until = DateTime.Now.AddSeconds(double.Parse(args[1]));
+                    while (DateTime.Now < until)
+                    {
+                        micMax = Math.Max(micMax, r.MicLevel);
+                        sysMax = Math.Max(sysMax, r.SystemLevel);
+                        Thread.Sleep(50);
+                    }
+                    Console.WriteLine($"peak mic={micMax:0.0000} system={sysMax:0.0000} micMuted={r.MicMuted}");
                     var elapsed = r.Stop();
                     AudioRecorder.EncodeToM4a(wav, Path.Combine(args[2], "mix.m4a"));
                     Console.WriteLine($"elapsed={elapsed.TotalSeconds:0.00}");
