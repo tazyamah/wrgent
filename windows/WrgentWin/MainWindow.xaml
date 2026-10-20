@@ -1,0 +1,417 @@
+<Window x:Class="WrgentWin.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="wrgent" Width="384" Height="640"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
+        FontFamily="Yu Gothic UI, Segoe UI" FontSize="13"
+        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
+
+    <Window.Resources>
+        <FontFamily x:Key="Icons">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+        <FontFamily x:Key="Mono">Cascadia Mono, Consolas</FontFamily>
+
+        <!-- 枠なしの小さなアイコンボタン -->
+        <Style x:Key="IconButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="FontFamily" Value="{StaticResource Icons}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" CornerRadius="6" Background="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Hover}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Text}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Pressed}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.35" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 文字付きの控えめなボタン -->
+        <Style x:Key="GhostButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" CornerRadius="6" Background="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Hover}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Text}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Pressed}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 録音ボタン（待機中はアクセント色、録音中は赤） -->
+        <Style x:Key="RecordButton" TargetType="Button">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{DynamicResource Accent}" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Height" Value="42" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="Bd" CornerRadius="21" Background="{TemplateBinding Background}" />
+                            <Border x:Name="Shine" CornerRadius="21" Background="White" Opacity="0" />
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Shine" Property="Opacity" Value="0.10" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Shine" Property="Opacity" Value="0.20" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- トグルスイッチ -->
+        <Style x:Key="Switch" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter VerticalAlignment="Center" />
+                            <Border x:Name="Track" Grid.Column="1" Width="36" Height="20" CornerRadius="10"
+                                    Background="{DynamicResource Track}" Margin="10,0,0,0">
+                                <Ellipse x:Name="Knob" Width="14" Height="14" Fill="White" HorizontalAlignment="Left" Margin="3,0,0,0" />
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="{DynamicResource Accent}" />
+                                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="Knob" Property="Margin" Value="0,0,3,0" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 入力のオン/オフ用の丸いチップ -->
+        <Style x:Key="Chip" TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Border x:Name="Bd" Width="28" Height="28" CornerRadius="14" Background="{DynamicResource AccentSoft}">
+                            <TextBlock x:Name="Glyph" Text="{TemplateBinding Content}" FontFamily="{StaticResource Icons}" FontSize="13"
+                                       Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="False">
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Hover}" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource TextTertiary}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Meter" TargetType="ProgressBar">
+            <Setter Property="Height" Value="6" />
+            <Setter Property="Maximum" Value="100" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid>
+                            <Border x:Name="PART_Track" CornerRadius="3" Background="{DynamicResource Track}" />
+                            <Border x:Name="PART_Indicator" CornerRadius="3" HorizontalAlignment="Left">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                        <GradientStop Color="#34C759" Offset="0" />
+                                        <GradientStop Color="#A8D93A" Offset="0.75" />
+                                        <GradientStop Color="#FF9F0A" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Slim" TargetType="ProgressBar">
+            <Setter Property="Height" Value="3" />
+            <Setter Property="Maximum" Value="100" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid>
+                            <Border x:Name="PART_Track" CornerRadius="1.5" Background="{DynamicResource Track}" />
+                            <Border x:Name="PART_Indicator" CornerRadius="1.5" HorizontalAlignment="Left" Background="{DynamicResource Accent}" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="NameBox" TargetType="TextBox">
+            <Setter Property="Foreground" Value="{DynamicResource Text}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource Text}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Bd" CornerRadius="8" Background="{DynamicResource Field}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="10,7">
+                            <Grid>
+                                <TextBlock x:Name="Hint" Text="録音名（省略可）" Foreground="{DynamicResource TextTertiary}" Visibility="Collapsed" IsHitTestVisible="False" />
+                                <ScrollViewer x:Name="PART_ContentHost" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Text" Value="">
+                                <Setter TargetName="Hint" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ThinScroll" TargetType="ScrollBar">
+            <Setter Property="Width" Value="6" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border CornerRadius="3" Background="{DynamicResource Track}" />
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- 影付きの角丸パネル -->
+    <Border Margin="12" CornerRadius="12" Background="{DynamicResource Bg}" BorderBrush="{DynamicResource Line}" BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.28" Color="Black" />
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- ヘッダー -->
+            <Grid x:Name="Header" Grid.Row="0" Height="44" Background="Transparent" Margin="14,4,8,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Image x:Name="Logo" Width="18" Height="18" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality" />
+                    <TextBlock Text="wrgent" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Text}" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button x:Name="FolderButton" Style="{StaticResource IconButton}" Content="&#xE838;" ToolTip="保存先を開く" />
+                    <Button x:Name="PinButton" Style="{StaticResource IconButton}" Content="&#xE718;" ToolTip="ウィンドウを固定" />
+                    <Button x:Name="HideButton" Style="{StaticResource IconButton}" Content="&#xE921;" ToolTip="トレイにしまう" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 録音状態 -->
+            <StackPanel Grid.Row="1" Margin="16,2,16,14">
+                <Border CornerRadius="10" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="14,12">
+                    <StackPanel>
+                        <Grid>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Grid Width="10" Height="10" Margin="0,0,8,0">
+                                    <Ellipse x:Name="StatusDot" Fill="{DynamicResource TextTertiary}" />
+                                </Grid>
+                                <TextBlock x:Name="StatusText" Text="待機中" FontSize="12.5" Foreground="{DynamicResource TextSecondary}" />
+                            </StackPanel>
+                            <TextBlock x:Name="EngineText" HorizontalAlignment="Right" FontSize="11" Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center" />
+                        </Grid>
+
+                        <TextBlock x:Name="TimeText" Text="00:00:00" FontFamily="{StaticResource Mono}" FontSize="38" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextTertiary}" HorizontalAlignment="Center" Margin="0,10,0,8" />
+
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="MicToggle" Style="{StaticResource Chip}" Content="&#xE720;" ToolTip="マイクを録音する" />
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="MicName" Text="マイク" FontSize="11" Foreground="{DynamicResource TextSecondary}" TextTrimming="CharacterEllipsis" Margin="0,0,0,4" />
+                                <ProgressBar x:Name="MicMeter" Style="{StaticResource Meter}" />
+                            </StackPanel>
+                        </Grid>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <CheckBox x:Name="SysToggle" Style="{StaticResource Chip}" Content="&#xE767;" ToolTip="PCの音を録音する" />
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="SysName" Text="PCの音" FontSize="11" Foreground="{DynamicResource TextSecondary}" TextTrimming="CharacterEllipsis" Margin="0,0,0,4" />
+                                <ProgressBar x:Name="SysMeter" Style="{StaticResource Meter}" />
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBox x:Name="NameBox" Style="{StaticResource NameBox}" Margin="0,0,0,10" />
+
+                        <Button x:Name="RecordButton" Style="{StaticResource RecordButton}">
+                            <StackPanel Orientation="Horizontal">
+                                <Border x:Name="RecordGlyph" Width="12" Height="12" CornerRadius="6" Background="White" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                <TextBlock x:Name="RecordLabel" Text="録音を開始" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Text="Ctrl + Alt + R でも開始・停止できます" FontSize="11" Foreground="{DynamicResource TextTertiary}" HorizontalAlignment="Center" Margin="0,7,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel x:Name="TaskPanel" Margin="2,10,2,0" Visibility="Collapsed">
+                    <TextBlock x:Name="TaskText" FontSize="11.5" Foreground="{DynamicResource TextSecondary}" TextTrimming="CharacterEllipsis" Margin="0,0,0,5" />
+                    <ProgressBar x:Name="TaskProgress" Style="{StaticResource Slim}" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- 録音一覧 -->
+            <Grid Grid.Row="2" Margin="16,0,10,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Grid Margin="2,0,6,6">
+                    <TextBlock Text="録音" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}" />
+                    <TextBlock x:Name="CountText" HorizontalAlignment="Right" FontSize="11" Foreground="{DynamicResource TextTertiary}" />
+                </Grid>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="0,0,6,0">
+                    <ScrollViewer.Resources>
+                        <Style TargetType="ScrollBar" BasedOn="{StaticResource ThinScroll}" />
+                    </ScrollViewer.Resources>
+                    <Grid>
+                        <TextBlock x:Name="EmptyText" Text="まだ録音はありません" FontSize="12" Foreground="{DynamicResource TextTertiary}"
+                                   HorizontalAlignment="Center" Margin="0,24,0,0" />
+                        <ItemsControl x:Name="RecordingList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border x:Name="Row" CornerRadius="8" Padding="10,8" Margin="0,0,0,2" Background="Transparent">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="Glyph" Text="&#xEA3A;" FontFamily="{StaticResource Icons}" FontSize="14"
+                                                       Foreground="{DynamicResource TextTertiary}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Title}" FontSize="12.5" Foreground="{DynamicResource Text}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock x:Name="Sub" Text="{Binding Subtitle}" FontSize="11" Foreground="{DynamicResource TextTertiary}" Margin="0,2,0,0" />
+                                            </StackPanel>
+                                            <StackPanel x:Name="Actions" Grid.Column="2" Orientation="Horizontal" Visibility="Collapsed">
+                                                <Button Style="{StaticResource IconButton}" Content="&#xE8D6;" ToolTip="文字起こし"
+                                                        Tag="{Binding}" Click="OnTranscribeClick" IsEnabled="{Binding CanTranscribe}" />
+                                                <Button Style="{StaticResource IconButton}" Content="&#xE8A5;" ToolTip="文字起こしを開く"
+                                                        Tag="{Binding}" Click="OnOpenTextClick" IsEnabled="{Binding HasTranscript}" />
+                                                <Button Style="{StaticResource IconButton}" Content="&#xE838;" ToolTip="フォルダを開く"
+                                                        Tag="{Binding}" Click="OnOpenFolderClick" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding Kind}" Value="done">
+                                            <Setter TargetName="Glyph" Property="Text" Value="&#xE930;" />
+                                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource Green}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Kind}" Value="busy">
+                                            <Setter TargetName="Glyph" Property="Text" Value="&#xE9D9;" />
+                                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource Accent}" />
+                                            <Setter TargetName="Sub" Property="Foreground" Value="{DynamicResource Accent}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Kind}" Value="recording">
+                                            <Setter TargetName="Glyph" Property="Text" Value="&#xE7C8;" />
+                                            <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource Red}" />
+                                            <Setter TargetName="Sub" Property="Foreground" Value="{DynamicResource Red}" />
+                                        </DataTrigger>
+                                        <Trigger SourceName="Row" Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="Row" Property="Background" Value="{DynamicResource Hover}" />
+                                            <Setter TargetName="Actions" Property="Visibility" Value="Visible" />
+                                        </Trigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- フッター -->
+            <Border Grid.Row="3" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="16,10,10,10" Margin="0,6,0,0">
+                <Grid>
+                    <CheckBox x:Name="AutoToggle" Style="{StaticResource Switch}" HorizontalAlignment="Left">
+                        <TextBlock Text="停止後に自動で文字起こし" FontSize="12" Foreground="{DynamicResource TextSecondary}" />
+                    </CheckBox>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="LibraryButton" Style="{StaticResource GhostButton}" Content="保存先…" />
+                        <Button x:Name="QuitButton" Style="{StaticResource GhostButton}" Content="終了" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
