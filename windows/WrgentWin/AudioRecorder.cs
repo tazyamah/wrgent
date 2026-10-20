@@ -19,7 +19,7 @@ sealed class AudioRecorder : IDisposable
     internal const int SampleRate = 48000;
     internal const int Channels = 2;
     private static readonly TimeSpan StartLatency = TimeSpan.FromMilliseconds(250);
-    private static readonly TimeSpan ReconcileDelay = TimeSpan.FromMilliseconds(400);
+    private static readonly TimeSpan ReconcileDelay = TimeSpan.FromMilliseconds(80);
 
     private readonly object _sync = new();
     private readonly Dictionary<string, CaptureSource> _loopbacks = new();
@@ -136,7 +136,7 @@ sealed class AudioRecorder : IDisposable
 
     private void ScheduleReconcile()
     {
-        // 通知はCOMのスレッドから来るので、そこでは何もしない。抜き差し直後は状態が揺れるので少し待つ。
+        // 通知はCOMのスレッドから来るので、そこでは何もしない。続けて届く通知をまとめるため、ごく短く待つ。
         try { _reconcileTimer?.Change(ReconcileDelay, Timeout.InfiniteTimeSpan); } catch (ObjectDisposedException) { }
     }
 
